@@ -130,13 +130,65 @@ http POST http://localhost:8082/lectures studentId=1 courseId=1 status=requested
 - 비동기식 발신 구현 : publish
 
 ```
-소스 추가
+# 결제 상태가 결제승인으로 변경되면 결제승인(PaymentApproved) 이벤트를 발행한다
+
+package edu.intensive;
+
+@Entity
+@Getter @Setter
+public class Payment {
+    @Id
+    @GeneratedValue
+    Long paymentId;
+    Long studentId;
+    Long courseId;
+    String status;
+    ...
+
+    @PreUpdate
+    public void onPreUpdate() {
+        if(this.getStatus().equals("Payment Approved")) {
+            PaymentApproved paymentApproved = new PaymentApproved();
+            BeanUtils.copyProperties(this, paymentApproved);
+            this.setStatus("Payment Approved? Paid !");
+            paymentApproved.publishAfterCommit();
+        } else {
+            System.out.println("Payment : There are no Requested Payment. Check your format! ");
+        }
+    }
+}
 ```
 
 - 비동기식 수신 구현 : PolicyHandler
 
 ```
-소스 추가
+# 결제승인(PaymentApproved) 이벤트를 수신하면 수강(Lecture)의 상태를 'Paid'로 변경한다
+
+package edu.intensive;
+
+@Service
+public class PolicyHandler {
+    @Autowired
+    LectureRepository lectureRepository;
+
+    @StreamListener(KafkaProcessor.INPUT)
+    public void onEvent(@Payload String message) {
+    }
+    ...
+
+    @StreamListener(KafkaProcessor.INPUT)
+    public void wheneverPaymentApproved(@Payload PaymentApproved paymentApproved) {
+        if (paymentApproved.isMe()) {
+            Lecture[] lectures = lectureRepository.findByCourseIdAndStudentId(paymentApproved.getCourseId(), paymentApproved.getStudentId());
+            for (Lecture lecture: lectures) {
+                lecture.setStatus("Paid");
+                lecture.setPaid(true);
+                lectureRepository.save(lecture);
+            }
+        }
+    }
+}
+
 ```
 
 - 비동기식 호출 테스트
